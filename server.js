@@ -45,3 +45,9 @@ res.json({ mensaje: 'Concepto eliminado' });
 });
 });
 app.listen(3000, () => console.log(' Servidor corriendo en http://localhost:3000'));
+
+app.use(express.static(__dirname)); // Sirve los archivos de la raíz
+
+app.get('/', (req, res) => {
+  res.sendFile(__dirname + '/index.html');
+});
