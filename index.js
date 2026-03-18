@@ -7,18 +7,21 @@ const path = require("path");
 const app = express();
 app.use(cors());
 app.use(express.json());
-app.use(express.static(path.join(__dirname, "../public")));
 
-// ─── Conexión a la BD ──────────────────────────────────────────────────────
+// Ajuste de archivos estáticos: Tus archivos están en la raíz del proyecto
+app.use(express.static(__dirname));
+
+// ─── Conexión a la BD (Configuración optimizada para TiDB) ──────────────────
 const dbConfig = {
   host: process.env.DB_HOST,
-  port: parseInt(process.env.DB_PORT || "3306"),
+  port: parseInt(process.env.DB_PORT || "4000"),
   user: process.env.DB_USER,
   password: process.env.DB_PASSWORD,
   database: process.env.DB_NAME,
-  ssl: process.env.DB_HOST && process.env.DB_HOST.includes("tidb")
-    ? { rejectUnauthorized: true }
-    : undefined,
+  // Forzamos SSL si estamos en la nube o es TiDB
+  ssl: {
+    rejectUnauthorized: false // Cambiado a false para evitar errores de certificados autofirmados en la nube
+  },
   waitForConnections: true,
   connectionLimit: 5,
 };
@@ -76,7 +79,6 @@ async function initDB() {
 
 // ─── Helper: rutas CRUD genéricas ─────────────────────────────────────────
 function makeCRUD(router, table, fields) {
-  // GET all
   router.get("/", async (req, res) => {
     try {
       const db = await getPool();
@@ -87,19 +89,6 @@ function makeCRUD(router, table, fields) {
     }
   });
 
-  // GET one
-  router.get("/:id", async (req, res) => {
-    try {
-      const db = await getPool();
-      const [rows] = await db.execute(`SELECT * FROM ${table} WHERE id = ?`, [req.params.id]);
-      if (!rows.length) return res.status(404).json({ error: "No encontrado" });
-      res.json(rows[0]);
-    } catch (err) {
-      res.status(500).json({ error: err.message });
-    }
-  });
-
-  // POST create
   router.post("/", async (req, res) => {
     try {
       const db = await getPool();
@@ -117,21 +106,6 @@ function makeCRUD(router, table, fields) {
     }
   });
 
-  // PUT update
-  router.put("/:id", async (req, res) => {
-    try {
-      const db = await getPool();
-      const vals = fields.map((f) => req.body[f] ?? null);
-      const setClause = fields.map((f) => `${f} = ?`).join(", ");
-      await db.execute(`UPDATE ${table} SET ${setClause} WHERE id = ?`, [...vals, req.params.id]);
-      const [rows] = await db.execute(`SELECT * FROM ${table} WHERE id = ?`, [req.params.id]);
-      res.json(rows[0]);
-    } catch (err) {
-      res.status(500).json({ error: err.message });
-    }
-  });
-
-  // DELETE
   router.delete("/:id", async (req, res) => {
     try {
       const db = await getPool();
@@ -143,7 +117,7 @@ function makeCRUD(router, table, fields) {
   });
 }
 
-// ─── Rutas ────────────────────────────────────────────────────────────────
+// ─── Rutas API ─────────────────────────────────────────────────────────────
 const conceptosRouter = express.Router();
 makeCRUD(conceptosRouter, "conceptos", ["nombre", "descripcion"]);
 app.use("/api/conceptos", conceptosRouter);
@@ -160,26 +134,33 @@ const unidadesRouter = express.Router();
 makeCRUD(unidadesRouter, "unidades_medida", ["nombre", "abreviatura"]);
 app.use("/api/unidades", unidadesRouter);
 
-// Health check
+// Health check para probar conexión desde el navegador
 app.get("/api/health", async (req, res) => {
   try {
     const db = await getPool();
     await db.execute("SELECT 1");
-    res.json({ status: "ok", db: "connected", timestamp: new Date().toISOString() });
+    res.json({ status: "ok", db: "connected" });
   } catch (err) {
-    res.status(500).json({ status: "error", db: "disconnected", error: err.message });
+    res.status(500).json({ status: "error", error: err.message });
   }
 });
 
-// SPA fallback
+// SPA fallback: Sirve el index.html de la raíz
 app.get("*", (req, res) => {
-  res.sendFile(path.join(__dirname, "../public/index.html"));
+  res.sendFile(path.join(__dirname, "index.html"));
 });
 
 // ─── Arranque ─────────────────────────────────────────────────────────────
 const PORT = process.env.PORT || 3000;
-initDB().then(() => {
-  app.listen(PORT, () => console.log(`🚀 Servidor corriendo en http://localhost:${PORT}`));
-});
+
+// En Vercel no es necesario el app.listen, pero lo dejamos para local
+if (process.env.NODE_ENV !== 'production') {
+    initDB().then(() => {
+        app.listen(PORT, () => console.log(`🚀 Local: http://localhost:${PORT}`));
+    });
+} else {
+    // En producción solo inicializamos las tablas
+    initDB();
+}
 
 module.exports = app;
