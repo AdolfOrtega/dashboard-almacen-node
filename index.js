@@ -164,3 +164,23 @@ if (process.env.NODE_ENV !== 'production') {
 }
 
 module.exports = app;
+
+// 1. Middlewares primero
+app.use(cors());
+app.use(express.json());
+app.use(express.static(__dirname)); 
+
+// 2. Rutas de la API (DEBEN IR ANTES DEL *)
+app.use("/api/conceptos", conceptosRouter);
+app.use("/api/destinos", destinosRouter);
+app.use("/api/productos", productosRouter);
+app.use("/api/unidades", unidadesRouter);
+
+// 3. El comodín siempre al FINAL
+app.get("*", (req, res) => {
+    // Si la ruta empieza por /api y llegó aquí, es que la ruta no existe
+    if (req.path.startsWith('/api')) {
+        return res.status(404).json({ error: "Ruta de API no encontrada" });
+    }
+    res.sendFile(path.join(__dirname, "index.html"));
+});
